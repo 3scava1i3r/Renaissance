@@ -5,3 +5,5 @@ data/trade_journal.jsonl
 data/cycle_summary.md
 data/pnl_state.json
 .agent-identity
+.vscode/
+plan.md
