@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node src/index.js",
     "test": "node --test test/*.test.js",
-    "dry": "node scripts/test-cycle.js"
+    "dry": "node scripts/test-cycle.js",
+    "register": "node scripts/compete-register.js"
   },
   "dependencies": {
     "dotenv": "^16.0.0",

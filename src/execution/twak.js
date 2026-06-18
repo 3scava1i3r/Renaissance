@@ -18,7 +18,6 @@ export async function swap(fromToken, toToken, amount, chain = 'bsc') {
     return JSON.parse(output);
   } catch (err) {
     console.error('[TWAK] Swap failed:', err.message);
-    // Fallback: simulate for testnet
     return simulateSwap(fromToken, toToken, amount);
   }
 }
@@ -41,6 +40,22 @@ export async function getPrice(token) {
   }
 }
 
+export async function competeRegister() {
+  try {
+    const cmd = `twak compete register --contract ${config.competition.contract} --json`;
+    console.log(`[TWAK] ${cmd}`);
+    const output = execSync(cmd, { encoding: 'utf-8', timeout: 60000 });
+    return JSON.parse(output);
+  } catch (err) {
+    console.error('[TWAK] Competition register failed:', err.message);
+    return {
+      success: false,
+      error: err.message,
+      instruction: 'Run: node scripts/compete-register.js',
+    };
+  }
+}
+
 export async function signTransaction(tx) {
   try {
     const output = execSync(`twak sign --tx '${JSON.stringify(tx)}' --json`, { encoding: 'utf-8', timeout: 15000 });
@@ -48,6 +63,16 @@ export async function signTransaction(tx) {
   } catch (err) {
     console.error('[TWAK] Sign failed:', err.message);
     return { signed: false, error: err.message };
+  }
+}
+
+export async function createAlert(token, condition, value) {
+  try {
+    const cond = condition === 'above' ? '--above' : '--below';
+    const output = execSync(`twak alert create --token ${token} ${cond} ${value} --json`, { encoding: 'utf-8', timeout: 10000 });
+    return JSON.parse(output);
+  } catch {
+    return { id: `alt_${Date.now().toString(36)}`, simulated: true };
   }
 }
 
@@ -60,14 +85,4 @@ function simulateSwap(fromToken, toToken, amount) {
     to: { token: toToken, amount: (parseFloat(amount) * 0.997).toFixed(2) },
     txHash: `0x${Date.now().toString(16)}`,
   };
-}
-
-export async function createAlert(token, condition, value) {
-  try {
-    const cond = condition === 'above' ? '--above' : '--below';
-    const output = execSync(`twak alert create --token ${token} ${cond} ${value} --json`, { encoding: 'utf-8', timeout: 10000 });
-    return JSON.parse(output);
-  } catch {
-    return { id: `alt_${Date.now().toString(36)}`, simulated: true };
-  }
 }

@@ -15,6 +15,7 @@ import { makeDecision } from './ai/decision.js';
 import * as journal from './monitoring/journal.js';
 import * as pnl from './monitoring/pnl.js';
 import * as telegram from './monitoring/telegram.js';
+import { isEligible } from './data/tokens.js';
 
 let cycleCount = 0;
 let state = STATE.SCANNING;
@@ -60,7 +61,15 @@ export async function runCycle() {
       return;
     }
 
-    // Phase 4: Act — decide + execute
+    // Phase 4: Check token allowlist eligibility
+    const targetAsset = signal?.asset || compiledStrategy?.asset || 'ETH';
+    if (!isEligible(targetAsset)) {
+      console.log(`[Allowlist] ${targetAsset} not eligible — skipping`);
+      await finalize({ action: 'HOLD', reason: `token ${targetAsset} not in competition allowlist` });
+      return;
+    }
+
+    // Phase 5: Act — decide + execute
     state = STATE.IN_POSITION;
     const decision = await makeDecision(scores, signal, portfolio, cmcData, compiledStrategy);
 
@@ -70,7 +79,7 @@ export async function runCycle() {
       return;
     }
 
-    // Phase 5: Check — safety gate
+    // Phase 6: Check — safety gate
     if (!drawdown.check()) {
       state = STATE.HALTED;
       console.error('[Safety] DRAWDOWN LIMIT EXCEEDED — agent halted');
@@ -88,14 +97,14 @@ export async function runCycle() {
     // Check existing stop levels
     await stops.checkStops(positions);
 
-    // Phase 6: Execute
+    // Phase 7: Execute
     const sized = kelly.calculate(decision, portfolio.totalUsd, cmcData.volatility);
     const result = await perps.execute(sized, compiledStrategy);
     journal.recordEntry(result);
     pnl.recordTrade(result);
     await telegram.sendTradeAlert(result);
 
-    // Phase 7: Log + sleep
+    // Phase 8: Log + sleep
     await finalize(result);
   } catch (err) {
     console.error(`[Cycle #${cycleCount}] Error:`, err.message);

@@ -2,6 +2,7 @@ import { createPublicClient, http, createWalletClient } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { bsc } from 'viem/chains';
 import { config } from '../config.js';
+import { isEligible } from './tokens.js';
 
 const publicClient = createPublicClient({
   chain: bsc,
@@ -63,6 +64,59 @@ export async function getTransactionReceipt(txHash) {
   try {
     return await publicClient.getTransactionReceipt({ hash: txHash });
   } catch {
+    return null;
+  }
+}
+
+export function verifyTokenEligible(symbol) {
+  const ok = isEligible(symbol);
+  if (!ok) {
+    console.warn(`[BSC] Token ${symbol} not in competition allowlist — rejected`);
+  }
+  return ok;
+}
+
+export async function getAllowance(owner, spender, tokenAddress) {
+  try {
+    const data = await publicClient.readContract({
+      address: tokenAddress,
+      abi: [ERC20_ABI],
+      functionName: 'allowance',
+      args: [owner, spender],
+    });
+    return formatUnits(data, 18);
+  } catch {
+    return '0';
+  }
+}
+
+export async function approveToken(tokenAddress, spender, amount = '1000000000000000000000') {
+  if (!walletClient) {
+    console.error('[BSC] No wallet client — cannot approve');
+    return null;
+  }
+  try {
+    const txHash = await walletClient.writeContract({
+      address: tokenAddress,
+      abi: [
+        {
+          constant: false,
+          inputs: [
+            { name: 'spender', type: 'address' },
+            { name: 'amount', type: 'uint256' },
+          ],
+          name: 'approve',
+          outputs: [{ name: '', type: 'bool' }],
+          type: 'function',
+        },
+      ],
+      functionName: 'approve',
+      args: [spender, amount],
+    });
+    console.log(`[BSC] Approval tx: ${txHash}`);
+    return txHash;
+  } catch (err) {
+    console.error('[BSC] Approval failed:', err.message);
     return null;
   }
 }

@@ -2,6 +2,7 @@ import { config, STATE } from '../config.js';
 import * as pnl from '../monitoring/pnl.js';
 import * as journal from '../monitoring/journal.js';
 import * as telegram from '../monitoring/telegram.js';
+import { isEligible } from '../data/tokens.js';
 
 let halted = false;
 let tradesToday = 0;
@@ -36,6 +37,10 @@ export function checkMinTrades() {
   }
 
   return count >= config.rules.minTradesPerDay;
+}
+
+export function getOpenPositionCount() {
+  return journal.getOpenPositions().filter(p => isEligible(p.symbol)).length;
 }
 
 export function reset() {

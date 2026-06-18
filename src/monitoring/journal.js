@@ -18,7 +18,7 @@ export function recordEntry(trade) {
     ...trade,
     id: `trade_${Date.now().toString(36)}`,
     recordedAt: new Date().toISOString(),
-    status: 'open',
+    status: trade.status || 'open',
   };
 
   positions.push(entry);
@@ -27,9 +27,28 @@ export function recordEntry(trade) {
   console.log(`[Journal] Trade recorded: ${trade.direction} ${trade.symbol} $${trade.size}`);
 }
 
+export function closeEntry(position, closeData) {
+  const idx = positions.findIndex(p => p.id === position.id);
+  if (idx !== -1) {
+    positions[idx] = { ...positions[idx], ...closeData };
+    savePositions();
+  }
+  fs.appendFileSync(JOURNAL_FILE, JSON.stringify({ type: 'close', ...closeData }) + '\n');
+}
+
 export function getTradeCountToday() {
   const today = new Date().toISOString().split('T')[0];
-  return positions.filter(p => p.timestamp && p.timestamp.startsWith(today)).length;
+  return positions.filter(p =>
+    p.timestamp && p.timestamp.startsWith(today) && p.status === 'open'
+  ).length;
+}
+
+export function getOpenPositions() {
+  return positions.filter(p => p.status === 'open');
+}
+
+export function getRecentEntries(count = 10) {
+  return [...positions].reverse().slice(0, count);
 }
 
 export function cycleSummary(data) {
@@ -40,15 +59,19 @@ export function cycleSummary(data) {
     `## Cycle #${data.cycleCount} — ${new Date().toISOString()}`,
     `State: ${data.state}`,
     `Action: ${data.result?.action || 'N/A'}`,
+    data.result?.symbol ? `Symbol: ${data.result.symbol}` : '',
     data.result?.reason ? `Reason: ${data.result.reason}` : '',
-    data.result?.asset ? `Asset: ${data.result.asset}` : '',
     data.result?.sizePct ? `Size: ${data.result.sizePct}%` : '',
     '---',
   ].filter(Boolean).join('\n') + '\n';
 
-  fs.appendFileSync(SUMMARY_FILE, summary);
+  try {
+    fs.appendFileSync(SUMMARY_FILE, summary);
+  } catch {}
 }
 
 function savePositions() {
-  fs.writeFileSync(POSITIONS_FILE, JSON.stringify(positions, null, 2));
+  try {
+    fs.writeFileSync(POSITIONS_FILE, JSON.stringify(positions, null, 2));
+  } catch {}
 }
