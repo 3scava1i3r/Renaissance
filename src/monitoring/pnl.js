@@ -87,8 +87,9 @@ export function logPnl() {
 function calculateCurrentValue() {
   let value = state.startingValue;
   for (const trade of state.trades) {
-    // Simplified PnL: each trade is a binary outcome
-    // In real mode, actual position PnL is used
+    if (trade.pnl) {
+      value += trade.pnl;
+    }
   }
   return value;
 }

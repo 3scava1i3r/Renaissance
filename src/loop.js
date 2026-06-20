@@ -20,6 +20,7 @@ import { isEligible } from './data/tokens.js';
 let cycleCount = 0;
 let state = STATE.SCANNING;
 let compiledStrategy = null;
+let cycleStart = 0;
 
 export function getState() {
   return { cycleCount, state, compiledStrategy };
@@ -27,7 +28,7 @@ export function getState() {
 
 export async function runCycle() {
   cycleCount++;
-  const cycleStart = Date.now();
+  cycleStart = Date.now();
   console.log(`\n[Cycle #${cycleCount}] ${new Date().toISOString()} — ${state}`);
 
   if (state === STATE.HALTED) {

@@ -8,7 +8,8 @@ const ACTIVATE_AT = 0.69;
 const TIME_STOP_HOURS = 72;
 
 export async function getOpenPositions() {
-  return [];
+  const { getOpenPositions } = await import('../monitoring/journal.js');
+  return getOpenPositions();
 }
 
 export async function checkStops(positions) {
