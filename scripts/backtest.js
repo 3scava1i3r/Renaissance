@@ -267,6 +267,7 @@ export function runBacktest(options = {}) {
       totalTrades, winningTrades, losingTrades: totalTrades - winningTrades,
       finalEquity: Math.round(finalEquity * 100) / 100,
     },
+    equity: equity.map(e => Math.round(e * 100) / 100),
     trades: trades.map((t, i) => ({
       trade: i + 1, symbol: t.symbol, direction: t.direction,
       entryPrice: Math.round(t.entryPrice * 100) / 100,
