@@ -96,6 +96,8 @@ function generateRandomMutations(params) {
 }
 
 async function generateLLMMutations(params) {
+  const geminiKey = process.env.GEMINI_API_KEY;
+  const nvidiaKey = process.env.NVIDIA_API_KEY;
   const veniceKey = process.env.VENICE_API_KEY;
   const anthropicKey = process.env.ANTHROPIC_API_KEY;
   const mutations = [];
@@ -124,7 +126,36 @@ Return ONLY a JSON object with these exact keys (numeric values only):
 
     let result = null;
     try {
-      if (veniceKey) {
+      if (geminiKey) {
+        const geminiModels = ['gemini-3-flash-preview', 'gemini-3.1-pro-preview', 'gemini-2.0-flash'];
+        for (const model of geminiModels) {
+          try {
+            const { default: axios } = await import('axios');
+            const { data } = await axios.post(
+              `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+              { contents: [{ role: 'user', parts: [{ text: prompt }] }] },
+              { headers: { 'x-goog-api-key': geminiKey, 'Content-Type': 'application/json' }, timeout: 20000 }
+            );
+            const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+            const jm = text.match(/\{[\s\S]*\}/);
+            if (jm) { result = JSON.parse(jm[0]); break; }
+          } catch {}
+        }
+      }
+      if (!result && nvidiaKey) {
+        try {
+          const { default: axios } = await import('axios');
+          const { data } = await axios.post(
+            'https://integrate.api.nvidia.com/v1/chat/completions',
+            { model: 'nvidia/llama-3.1-nemotron-70b-instruct', messages: [{ role: 'user', content: prompt }], temperature: 0.8 },
+            { headers: { 'Authorization': `Bearer ${nvidiaKey}`, 'Content-Type': 'application/json' }, timeout: 15000 }
+          );
+          const text = data.choices[0].message.content;
+          const jm = text.match(/\{[\s\S]*\}/);
+          if (jm) result = JSON.parse(jm[0]);
+        } catch {}
+      }
+      if (!result && veniceKey) {
         const { default: axios } = await import('axios');
         const { data } = await axios.post(
           'https://api.venice.ai/api/v1/chat/completions',
@@ -155,6 +186,7 @@ Return ONLY a JSON object with these exact keys (numeric values only):
       }
       mutations.push({ params: cleaned, label: p.label });
     }
+    await new Promise(r => setTimeout(r, 2000));
   }
   return mutations;
 }
@@ -172,13 +204,23 @@ export async function evolve() {
   const baselineScore = scoreMutation(baselineResult);
   console.log(`Baseline: Sharpe=${baselineResult.results.sharpeRatio}, Return=${baselineResult.results.totalReturn}%, DD=${baselineResult.results.maxDrawdown}%, WR=${baselineResult.results.winRate}%, Trades=${baselineResult.results.totalTrades}, Score=${baselineScore.toFixed(1)}\n`);
 
-  const hasLLM = !!(process.env.VENICE_API_KEY || process.env.ANTHROPIC_API_KEY);
-  const mutations = hasLLM ? await generateLLMMutations(baseline) : generateRandomMutations(baseline);
+  const hasLLM = !!(process.env.GEMINI_API_KEY || process.env.NVIDIA_API_KEY || process.env.VENICE_API_KEY || process.env.ANTHROPIC_API_KEY);
+  let mutations = [];
+  if (hasLLM) {
+    mutations = await generateLLMMutations(baseline);
+    if (mutations.length === 0) {
+      console.log('⚠ LLM generation returned 0 mutations (API quota/error?) — falling back to random mutations.\n');
+      mutations = generateRandomMutations(baseline);
+    }
+  } else {
+    mutations = generateRandomMutations(baseline);
+  }
 
   if (hasLLM) {
-    console.log(`Using LLM (${
-      process.env.VENICE_API_KEY ? 'Venice AI' : 'Anthropic'
-    }) for mutation generation...\n`);
+    const source = process.env.GEMINI_API_KEY ? 'Gemini' :
+      process.env.NVIDIA_API_KEY ? 'NVIDIA NIM' :
+      process.env.VENICE_API_KEY ? 'Venice AI' : 'Anthropic';
+    console.log(`Using LLM (${source}) for mutation generation...\n`);
   } else {
     console.log('No LLM API key set — using random mutations.\n');
   }

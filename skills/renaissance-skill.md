@@ -141,7 +141,7 @@ The strategy evolves through an LLM-driven optimization loop:
 
 1. **Run backtest** → compute Sharpe ratio, max drawdown, win rate, total return
 2. **Score** the current parameter set: `min(50, max(0, Sharpe) * 2.5) + min(40, return * 0.2) + winRate * 0.2 + min(15, trades * 0.2) - (drawdown > 10 ? (drawdown - 10) * 2 : 0)`
-3. **Generate 3 mutations** via LLM (Venice AI or Anthropic) when API key is set, otherwise random perturbation
+3. **Generate 3 mutations** via LLM (Gemini → NVIDIA NIM → Venice AI → Anthropic) when API key is set, otherwise random perturbation
 4. **Backtest each mutation** using the same historical data
 5. **Promote** the mutation with the highest score if it beats the baseline
 6. **Log** every generation to `evolution_log.json` for audit trail
@@ -164,44 +164,28 @@ Run `node scripts/fetch-data.js` before `npm run backtest` to use real market da
 
 Run `npm run backtest` to reproduce. Based on 540 four-hour periods (~90 days) with deterministic seed 42:
 
-| Metric | Synthetic (default) | Binance data | After Evolution (optimized) |
-|--------|--------------------|-------------|-----------------------------|
-| Sharpe ratio | 18.50 | 18.75 | 18.52 |
-| Total return | +168.21% | +45.35% (100 periods) | **+609.79%** |
-| Max drawdown | 0.40% | 0.56% | 0.54% |
-| Win rate | 44.9% | 46.67% | 44.59% |
-| Total trades | 49 | 15 | 74 |
-| Final equity (from $1,000) | $2,682 | $1,453 (100 periods) | **$7,098** |
-
-### Evolution-optimized parameters
-
-After multiple generations of evolution, the strategy converged on:
-
-```json
-{
-  "rsiOversoldThreshold": 39,
-  "rsiOverboughtThreshold": 79,
-  "confidenceThreshold": 0.69,
-  "kellyFraction": 0.34,
-  "volDampeningFloor": 0.14,
-  "maxLeverage": 5,
-  "stopLossPct": 9,
-  "takeProfitPct": 9
-}
-```
+| Metric | Binance data (real) |
+|--------|---------------------|
+| Sharpe ratio | **19.18** |
+| Total return | **+444.51%** |
+| Max drawdown | 0.54% |
+| Win rate | 42.5% |
+| Total trades | 80 (34W / 46L) |
+| Final equity (from $1,000) | **$5,445** |
+| Tokens traded | BTC, ETH, BNB |
 
 ## How to Use as a CMC Skill
 
 ### Prerequisites
 - `CMC_API_KEY` in `.env` for live CMC data (get at https://coinmarketcap.com/api/agent)
-- `VENICE_API_KEY` in `.env` for LLM-powered evolution (optional, get at https://venice.ai)
+- `GEMINI_API_KEY`, `NVIDIA_API_KEY`, or `VENICE_API_KEY` in `.env` for LLM-powered evolution (optional — all have free tiers)
 
 ### Steps
 1. **Load the skill**: Include `renaissance-skill.md` in your agent's skills directory
 2. **Configure data sources**: Point to CMC quotes/latest and futures/quotes endpoints
 3. **Fetch historical data**: Run `node scripts/fetch-data.js` for real Binance/CoinGecko data
 4. **Run initial backtest**: Execute `npm run backtest` to validate against historical data
-5. **Evolve**: Run `npm run evolve` to generate improved parameter sets (uses LLM if `VENICE_API_KEY` set)
+5. **Evolve**: Run `npm run evolve` to generate improved parameter sets (uses LLM if API key set; Gemini → NVIDIA NIM → Venice AI → Anthropic → random fallback)
 6. **Deploy**: Export the best config and use it with your trading agent
 
 ## Example Strategy Configurations

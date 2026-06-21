@@ -31,13 +31,13 @@ Uses real data if fetched, otherwise synthetic. Outputs Sharpe ratio, max drawdo
 ### 3. Evolve Strategy
 
 ```bash
-# Set API key for AI-powered mutation (optional)
-export VENICE_API_KEY=your_key_here
+# AI-powered mutation (optional — any free API key works)
+export GEMINI_API_KEY=your_key_here
 
 npm run evolve
 ```
 
-Mutates strategy parameters, backtests each mutation, and promotes the best performer. Uses LLM when API key is set, otherwise random perturbation.
+Mutates strategy parameters, backtests each mutation, and promotes the best performer. Uses LLM when API key is set (Gemini → NVIDIA NIM → Venice AI → Anthropic), otherwise random perturbation. All providers have free tiers — see `.env.example`.
 
 ## Data Sources
 
@@ -46,6 +46,8 @@ Mutates strategy parameters, backtests each mutation, and promotes the best perf
 | **Binance** | `npm run fetch-data` | No — free public API |
 | **CoinGecko** | Fallback in fetch-data | No |
 | **CMC** | Live data via `CMC_API_KEY` | Yes |
+| **Gemini AI** | LLM evolution via `GEMINI_API_KEY` | Yes (free tier) |
+| **NVIDIA NIM** | LLM evolution via `NVIDIA_API_KEY` | Yes (free tier) |
 | **Synthetic** | Default backtest | No |
 
 ## Strategy Architecture
