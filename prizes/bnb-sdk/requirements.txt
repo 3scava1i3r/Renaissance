@@ -1,0 +1,14 @@
+# Renaissance BNB Agent SDK requirements
+# pip install -r prizes/bnb-sdk/requirements.txt
+
+# Core SDK — ERC-8004 identity + ERC-8183 commerce client
+bnbagent>=0.3.0
+
+# Server components (FastAPI + Uvicorn) — for agent_server.py
+bnbagent[server]>=0.3.0
+
+# IPFS storage (optional) — set STORAGE_API_KEY in .env
+# bnbagent[ipfs]>=0.3.0
+
+# Environment variable loading
+python-dotenv>=1.0.0

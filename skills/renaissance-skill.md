@@ -250,6 +250,9 @@ Run `npm run backtest` to reproduce. Based on 540 four-hour periods (~90 days) w
 | `prizes/agent-hub/mcp.json` | CMC MCP server config |
 | `prizes/agent-hub/cmc-cli-demo.sh` | CMC CLI integration demo |
 | `prizes/agent-hub/SKILL.md` | Agent Hub multi-access integration skill |
+| `prizes/bnb-sdk/register_agent.py` | ERC-8004 on-chain agent registration |
+| `prizes/bnb-sdk/agent_server.py` | ERC-8183 commerce agent server |
+| `prizes/bnb-sdk/SKILL.md` | BNB Agent SDK integration skill |
 
 ## CMC Agent Hub Integration
 
@@ -263,3 +266,15 @@ Renaissance connects to CoinMarketCap through **four Agent Hub access paths**, d
 | **REST API** | `src/data/cmc.js` | Requires `CMC_API_KEY` in `.env` |
 
 See `prizes/agent-hub/` for setup instructions, MCP configuration, and the CLI demo script.
+
+## BNB AI Agent SDK Integration
+
+Renaissance integrates with the [BNBAgent SDK](https://github.com/bnb-chain/bnbagent-sdk) — the first live implementation of ERC-8004 (agent identity) and ERC-8183 (agentic commerce) on BNB Chain.
+
+| Component | File | Purpose |
+|-----------|------|---------|
+| **ERC-8004 Registration** | `prizes/bnb-sdk/register_agent.py` | Registers the strategy as an on-chain agent with verifiable identity |
+| **ERC-8183 Agent Server** | `prizes/bnb-sdk/agent_server.py` | Accepts token analysis jobs funded via escrow, runs strategy, returns signals |
+| **SDK Config** | `prizes/bnb-sdk/.env.example` | Wallet, network, and service price config |
+
+See `prizes/bnb-sdk/` for setup instructions and usage guide.
