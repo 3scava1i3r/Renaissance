@@ -12,29 +12,46 @@ cd Renaissance
 npm install
 ```
 
-### Run Backtest
+### 1. Fetch Real Market Data (optional)
+
+```bash
+npm run fetch-data
+```
+
+Pulls 540 candles at 4h intervals for BTC, ETH, BNB from Binance free API (no key needed).
+
+### 2. Run Backtest
 
 ```bash
 npm run backtest
 ```
 
-Outputs Sharpe ratio, max drawdown, win rate, total return, and full trade log.
+Uses real data if fetched, otherwise synthetic. Outputs Sharpe ratio, max drawdown, win rate, total return, and full trade log.
 
-### Evolve Strategy
+### 3. Evolve Strategy
 
 ```bash
-# Optional: set LLM API key for AI-powered mutation
-export ANTHROPIC_API_KEY=sk-...
+# Set API key for AI-powered mutation (optional)
+export VENICE_API_KEY=your_key_here
 
 npm run evolve
 ```
 
-Mutates strategy parameters, backtests each mutation, and promotes the best performer. Results logged to `data/evolution_log.json`.
+Mutates strategy parameters, backtests each mutation, and promotes the best performer. Uses LLM when API key is set, otherwise random perturbation.
+
+## Data Sources
+
+| Source | How | Key needed |
+|--------|-----|------------|
+| **Binance** | `npm run fetch-data` | No — free public API |
+| **CoinGecko** | Fallback in fetch-data | No |
+| **CMC** | Live data via `CMC_API_KEY` | Yes |
+| **Synthetic** | Default backtest | No |
 
 ## Strategy Architecture
 
 ```
-CMC Data (prices, funding, fear & greed)
+CMC/Binance Data (prices, funding, fear & greed)
    │
    ├─→ Layer 1: Quant Scoring (trend + momentum + volume + relative strength)
    │       ↓
@@ -66,7 +83,8 @@ src/
 │   └── cmc.js             # CMC Agent Hub integration
 scripts/
 ├── backtest.js            # Backtesting harness
-└── evolve.js              # LLM-driven strategy evolution
+├── evolve.js              # Strategy evolution engine
+└── fetch-data.js          # Binance/CoinGecko data fetcher
 skills/
 └── renaissance-skill.md   # Strategy Skill spec (submission artifact)
 test/
@@ -76,6 +94,6 @@ test/
 
 ## Submission
 
-Submit `skills/renaissance-skill.md` plus your GitHub repo on DoraHacks. Include backtest results showing Sharpe ratio, max drawdown, win rate, and total return.
+Submit your GitHub repo on DoraHacks. Run `npm run backtest` and include the results in your description. For best results, run `npm run fetch-data` first for real market data.
 
 **Deadline:** June 21, 2026 17:30 UTC

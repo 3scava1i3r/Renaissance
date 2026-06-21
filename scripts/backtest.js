@@ -1,6 +1,12 @@
 import { scoreAll } from '../src/strategy/quant_score.js';
 import { evaluate } from '../src/strategy/perps_strategy.js';
 import { calculate } from '../src/strategy/kelly.js';
+import { loadSavedData } from './fetch-data.js';
+import { existsSync, readFileSync } from 'fs';
+import { resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const DEFAULT_CONFIG = {
   initialCapital: 1000,
@@ -9,6 +15,7 @@ const DEFAULT_CONFIG = {
   txnCost: 0.50,
   gasCost: 0.01,
   seed: 42,
+  dataSource: 'auto',
 };
 
 function mulberry32(a) {
@@ -21,6 +28,7 @@ function mulberry32(a) {
 }
 
 function generateMarketData(periods, seed) {
+  console.warn('[Backtest] WARNING: Using SYNTHETIC data. Run `node scripts/fetch-data.js` for real market data.\n');
   const rng = mulberry32(seed);
   const data = [];
   let btcPrice = 65000;
@@ -33,17 +41,12 @@ function generateMarketData(periods, seed) {
     btcVol = Math.max(0.3, Math.min(3, btcVol));
     const btcRet = (rng() - 0.5 + btcVol * 0.02) * 0.02;
     btcPrice *= (1 + btcRet);
-
     const ethBeta = 0.8 + rng() * 0.4;
     const ethRet = btcRet * ethBeta + (rng() - 0.5) * 0.015;
     ethPrice *= (1 + ethRet);
-
     const bnbBeta = 0.6 + rng() * 0.5;
     const bnbRet = btcRet * bnbBeta + (rng() - 0.5) * 0.02;
     bnbPrice *= (1 + bnbRet);
-
-    const fundingRate = (rng() - 0.48) * 0.0004;
-    const fearGreedValue = Math.round(20 + Math.sin(i / 30) * 30 + (rng() - 0.5) * 20);
 
     data.push({
       timestamp: new Date(Date.now() - (periods - i) * DEFAULT_CONFIG.intervalHours * 3600000).toISOString(),
@@ -53,21 +56,50 @@ function generateMarketData(periods, seed) {
         { symbol: 'BNB', price: Math.round(bnbPrice * 100) / 100, percentChange1h: bnbRet * 100, percentChange24h: (rng() - 0.5) * 8, volume24h: 2 + rng() * 5 },
       ],
       fundingRates: [
-        { symbol: 'BTC', fundingRate },
-        { symbol: 'ETH', fundingRate: fundingRate + (rng() - 0.5) * 0.0001 },
-        { symbol: 'BNB', fundingRate: fundingRate + (rng() - 0.5) * 0.00015 },
+        { symbol: 'BTC', fundingRate: (rng() - 0.48) * 0.0004 },
+        { symbol: 'ETH', fundingRate: (rng() - 0.48) * 0.0004 },
+        { symbol: 'BNB', fundingRate: (rng() - 0.48) * 0.0004 },
       ],
-      fearGreed: { value: fearGreedValue },
+      fearGreed: { value: Math.round(20 + Math.sin(data.length / 30) * 30 + (rng() - 0.5) * 20) },
       trending: [],
     });
   }
   return data;
 }
 
+function loadMarketData(config) {
+  if (config.dataSource === 'synthetic') {
+    return null;
+  }
+
+  const saved = loadSavedData();
+  if (saved && saved.length > 0) {
+    const sliced = saved.slice(0, config.periods);
+    console.log(`[Backtest] Using saved market data — ${sliced.length} slices from Binance/CoinGecko\n`);
+    return sliced;
+  }
+
+  const dataPath = resolve(__dirname, '../data/market_data.json');
+  if (existsSync(dataPath)) {
+    try {
+      const raw = JSON.parse(readFileSync(dataPath, 'utf-8'));
+      const d = raw.data || raw;
+      if (Array.isArray(d) && d.length > 0) {
+        const sliced = d.slice(0, config.periods);
+        console.log(`[Backtest] Using saved market data — ${sliced.length} slices\n`);
+        return sliced;
+      }
+    } catch {}
+  }
+
+  return null;
+}
+
 function computeSharpe(returns, rf = 0.02, periodsPerYear = 2190) {
   if (returns.length < 2) return 0;
   const mu = returns.reduce((a, b) => a + b, 0) / returns.length;
   const variance = returns.reduce((a, b) => a + (b - mu) ** 2, 0) / (returns.length - 1);
+  if (variance === 0) return 0;
   const sigma = Math.sqrt(variance);
   if (sigma === 0) return 0;
   return ((mu * periodsPerYear) - rf) / (sigma * Math.sqrt(periodsPerYear));
@@ -87,7 +119,14 @@ function computeMaxDrawdown(equity) {
 export function runBacktest(options = {}) {
   const config = { ...DEFAULT_CONFIG, ...options };
   const evoParams = options.evoParams || {};
-  const marketData = options.marketData || generateMarketData(config.periods, config.seed);
+
+  let marketData = options.marketData;
+  if (!marketData) {
+    marketData = loadMarketData(config);
+  }
+  if (!marketData) {
+    marketData = generateMarketData(config.periods, config.seed);
+  }
 
   const stopLossPct = (evoParams.stopLossPct || 5) / 100;
   const takeProfitPct = (evoParams.takeProfitPct || 5) / 100;
@@ -107,21 +146,10 @@ export function runBacktest(options = {}) {
   let lastTradeDay = -1;
   let drawdownHalted = false;
 
-  const strategy = {
-    asset: 'ETH',
-    direction: 'LONG',
-    exitConditions: { rsiOverbought, rsiOversold, trailingStop: 'ATR' },
-    risk: { maxLeverage: maxLev, maxPerTrade: 200, maxDrawdown: 30 },
-  };
-
   for (let i = 0; i < marketData.length; i++) {
     const slice = marketData[i];
     const currentDay = Math.floor(i / (24 / config.intervalHours));
-
-    if (currentDay !== lastTradeDay) {
-      tradesToday = 0;
-      lastTradeDay = currentDay;
-    }
+    if (currentDay !== lastTradeDay) { tradesToday = 0; lastTradeDay = currentDay; }
 
     const cmcData = {
       prices: slice.prices,
@@ -131,17 +159,27 @@ export function runBacktest(options = {}) {
       volatility: (slice.prices || [])
         .filter(p => p.percentChange24h != null)
         .reduce((a, b) => a + Math.abs(b.percentChange24h), 0) / (slice.prices?.length || 1) || 20,
-      selectedToken: slice.prices?.[1] || null,
+      selectedToken: null,
     };
 
-    const scores = scoreAll(cmcData, strategy);
+    const scores = scoreAll(cmcData, { asset: 'ETH', direction: 'LONG' });
+    const topToken = (scores && scores.length > 0 && scores[0].score > 0) ? scores[0] : null;
+    const targetSymbol = topToken ? topToken.symbol : 'ETH';
+
+    const strategy = {
+      asset: targetSymbol,
+      direction: 'LONG',
+      exitConditions: { rsiOverbought, rsiOversold, trailingStop: 'ATR' },
+      risk: { maxLeverage: maxLev, maxPerTrade: 200, maxDrawdown: 30, minConfidence: confThreshold },
+    };
+
     const signal = evaluate(cmcData, strategy);
 
     if (computeMaxDrawdown(equity) > 0.3 && i > 20) drawdownHalted = true;
 
     if (drawdownHalted) {
       if (position) {
-        const p = slice.prices.find(p => p.symbol === position.symbol)?.price || slice.prices[1]?.price;
+        const p = slice.prices.find(pr => pr.symbol === position.symbol)?.price || slice.prices[0]?.price;
         const pnl = (p - position.entryPrice) / position.entryPrice * position.leverage * position.sizeUsd - config.txnCost - config.gasCost;
         portfolio += position.sizeUsd + pnl;
         trades.push({ ...position, exitPrice: p, pnl, exitReason: 'DRAWDOWN_HALT' });
@@ -154,7 +192,7 @@ export function runBacktest(options = {}) {
     let shouldExit = false;
     let exitReason = '';
     if (position) {
-      const cp = slice.prices.find(p => p.symbol === position.symbol)?.price;
+      const cp = slice.prices.find(pr => pr.symbol === position.symbol)?.price;
       if (cp) {
         const pnlPct = (cp - position.entryPrice) / position.entryPrice;
         if (pnlPct <= -stopLossPct) { shouldExit = true; exitReason = 'STOP_LOSS'; }
@@ -164,7 +202,7 @@ export function runBacktest(options = {}) {
     }
 
     if (shouldExit && position) {
-      const ep = slice.prices.find(p => p.symbol === position.symbol)?.price || slice.prices[1]?.price;
+      const ep = slice.prices.find(pr => pr.symbol === position.symbol)?.price || slice.prices[0]?.price;
       const pnl = (ep - position.entryPrice) / position.entryPrice * position.leverage * position.sizeUsd - config.txnCost - config.gasCost;
       portfolio += position.sizeUsd + pnl;
       trades.push({ ...position, exitPrice: ep, pnl, exitReason });
@@ -172,25 +210,21 @@ export function runBacktest(options = {}) {
     }
 
     if (!position && signal && signal.direction && signal.confidence >= confThreshold && tradesToday < 1) {
-      const eth = slice.prices.find(p => p.symbol === 'ETH');
-      const price = eth?.price || 3500;
+      const target = slice.prices.find(pr => pr.symbol === targetSymbol);
+      const price = target?.price || slice.prices[0]?.price || 3500;
       const vol = cmcData.volatility || 20;
 
       const kellyResult = calculate(
-        { action: 'BUY', confidence: signal.confidence, winRate: 0.55, avgWin: 0.12, avgLoss: 0.05 },
+        { action: 'BUY', confidence: signal.confidence, winRate: 0.55, avgWin: 0.12, avgLoss: 0.05, kellyFraction, leverage: maxLev, volDampeningFloor },
         portfolio, vol
       );
 
       let sizePct = kellyResult.sizePct || 5;
-      sizePct = Math.max(2, Math.min(20, sizePct * (kellyFraction / 0.25)));
-      const volAdj = Math.max(volDampeningFloor, 1 - (vol * 0.5 / 10));
-      sizePct *= volAdj;
-      sizePct = Math.max(2, Math.min(20, sizePct));
-
-      const sizeUsd = Math.min(portfolio * (sizePct / 100), portfolio * 0.2);
+      if (sizePct > 5) sizePct = 5;
+      const sizeUsd = Math.min(portfolio * (sizePct / 100), portfolio * 0.1);
       if (sizeUsd > 10) {
         position = {
-          symbol: 'ETH',
+          symbol: targetSymbol,
           direction: signal.direction,
           entryPrice: price,
           sizeUsd,
@@ -203,21 +237,28 @@ export function runBacktest(options = {}) {
     }
 
     equity.push(position
-      ? portfolio + (position.sizeUsd * ((slice.prices.find(p => p.symbol === 'ETH')?.price || 3500) / position.entryPrice - 1) * position.leverage)
+      ? portfolio + (position.sizeUsd * (((slice.prices.find(pr => pr.symbol === position.symbol)?.price || slice.prices[0]?.price) / position.entryPrice - 1) * position.leverage))
       : portfolio);
     if (i > 0) returns.push((equity[equity.length - 1] - equity[equity.length - 2]) / equity[equity.length - 2]);
   }
 
   const finalEquity = equity[equity.length - 1];
   const totalReturn = ((finalEquity - config.initialCapital) / config.initialCapital) * 100;
-  const returnArr = returns;
-  const sharpe = computeSharpe(returnArr);
+  const sharpe = computeSharpe(returns);
   const maxDd = computeMaxDrawdown(equity) * 100;
   const winningTrades = trades.filter(t => t.pnl > 0).length;
   const totalTrades = trades.length;
 
   return {
-    config: { initialCapital: config.initialCapital, periods: marketData.length, intervalHours: config.intervalHours, txnCost: config.txnCost, gasCost: config.gasCost, seed: config.seed },
+    config: {
+      initialCapital: config.initialCapital,
+      periods: marketData.length,
+      intervalHours: config.intervalHours,
+      txnCost: config.txnCost,
+      gasCost: config.gasCost,
+      seed: config.seed,
+      dataSource: marketData.length > 0 && marketData[0].prices ? (marketData[0].prices[0]?.volume24h > 1000000 ? 'binance' : 'synthetic') : 'synthetic',
+    },
     results: {
       totalReturn: Math.round(totalReturn * 100) / 100,
       sharpeRatio: Math.round(sharpe * 100) / 100,
@@ -237,11 +278,6 @@ export function runBacktest(options = {}) {
 }
 
 if (process.argv[1] && (process.argv[1].endsWith('backtest.js') || process.argv[1].endsWith('backtest'))) {
-  const { existsSync, readFileSync } = await import('fs');
-  const { resolve, dirname } = await import('path');
-  const { fileURLToPath } = await import('url');
-  const __dirname = dirname(fileURLToPath(import.meta.url));
-
   let evoParams = {};
   const evoLog = resolve(__dirname, '../data/evolution_log.json');
   if (existsSync(evoLog)) {
@@ -249,10 +285,7 @@ if (process.argv[1] && (process.argv[1].endsWith('backtest.js') || process.argv[
       const log = JSON.parse(readFileSync(evoLog, 'utf-8'));
       const entries = log.entries || [];
       for (let i = entries.length - 1; i >= 0; i--) {
-        if (entries[i].promotedParams) {
-          evoParams = entries[i].promotedParams;
-          break;
-        }
+        if (entries[i].promotedParams) { evoParams = entries[i].promotedParams; break; }
       }
     } catch {}
   }
@@ -261,6 +294,7 @@ if (process.argv[1] && (process.argv[1].endsWith('backtest.js') || process.argv[
     periods: parseInt(process.argv[2]) || 540,
     initialCapital: parseFloat(process.argv[3]) || 1000,
     seed: parseInt(process.argv[4]) || 42,
+    dataSource: process.argv[5] || 'auto',
     evoParams,
   });
   console.log(JSON.stringify(result, null, 2));

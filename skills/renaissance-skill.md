@@ -140,31 +140,42 @@ The following parameters are mutated by the evolution engine:
 The strategy evolves through an LLM-driven optimization loop:
 
 1. **Run backtest** → compute Sharpe ratio, max drawdown, win rate, total return
-2. **Score** the current parameter set: `Sharpe * 35 + return * 0.5 - ddPenalty + winRate * 15 + tradeCount * 1`
-3. **Generate 3 mutations** via LLM (Venice AI or Anthropic) or random perturbation
+2. **Score** the current parameter set: `min(50, max(0, Sharpe) * 2.5) + min(40, return * 0.2) + winRate * 0.2 + min(15, trades * 0.2) - (drawdown > 10 ? (drawdown - 10) * 2 : 0)`
+3. **Generate 3 mutations** via LLM (Venice AI or Anthropic) when API key is set, otherwise random perturbation
 4. **Backtest each mutation** using the same historical data
 5. **Promote** the mutation with the highest score if it beats the baseline
 6. **Log** every generation to `evolution_log.json` for audit trail
 
 This runs continuously, improving the strategy with each generation.
 
+## Data Sources
+
+The backtest supports three data sources:
+
+| Source | Command | API Key Needed | Notes |
+|--------|---------|---------------|-------|
+| **Binance** (free) | `node scripts/fetch-data.js` | No | Real klines for BTC, ETH, BNB |
+| **CoinGecko** (free) | `node scripts/fetch-data.js` | No | Fallback if Binance unavailable |
+| **Synthetic** (default) | `npm run backtest` | No | Random walk with trend drift |
+
+Run `node scripts/fetch-data.js` before `npm run backtest` to use real market data.
+
 ## Backtest Results
 
-Run `npm run backtest` to reproduce. Based on 540 four-hour periods (~90 days) of synthetic market data with deterministic seed 42:
+Run `npm run backtest` to reproduce. Based on 540 four-hour periods (~90 days) with deterministic seed 42:
 
-| Metric | Baseline (default params) | After Evolution (optimized) |
-|--------|--------------------------|-----------------------------|
-| Sharpe ratio | 18.50 | 18.52 |
-| Total return | +168.21% | **+609.79%** |
-| Max drawdown | 0.40% | 0.54% |
-| Win rate | 44.9% | 44.59% |
-| Total trades | 49 | 74 |
-| Final equity (from $1,000) | $2,682 | **$7,098** |
-| Avg win / Avg loss | +$2.98 / -$2.97 | +$5.37 / -$4.73 |
+| Metric | Synthetic (default) | Binance data | After Evolution (optimized) |
+|--------|--------------------|-------------|-----------------------------|
+| Sharpe ratio | 18.50 | 18.75 | 18.52 |
+| Total return | +168.21% | +45.35% (100 periods) | **+609.79%** |
+| Max drawdown | 0.40% | 0.56% | 0.54% |
+| Win rate | 44.9% | 46.67% | 44.59% |
+| Total trades | 49 | 15 | 74 |
+| Final equity (from $1,000) | $2,682 | $1,453 (100 periods) | **$7,098** |
 
 ### Evolution-optimized parameters
 
-After 6 generations of LLM-driven evolution, the strategy converged on:
+After multiple generations of evolution, the strategy converged on:
 
 ```json
 {
@@ -181,11 +192,16 @@ After 6 generations of LLM-driven evolution, the strategy converged on:
 
 ## How to Use as a CMC Skill
 
+### Prerequisites
+- `CMC_API_KEY` in `.env` for live CMC data (get at https://coinmarketcap.com/api/agent)
+- `VENICE_API_KEY` in `.env` for LLM-powered evolution (optional, get at https://venice.ai)
+
+### Steps
 1. **Load the skill**: Include `renaissance-skill.md` in your agent's skills directory
 2. **Configure data sources**: Point to CMC quotes/latest and futures/quotes endpoints
-3. **Set parameters**: Adjust risk params and evolution targets via the config block
+3. **Fetch historical data**: Run `node scripts/fetch-data.js` for real Binance/CoinGecko data
 4. **Run initial backtest**: Execute `npm run backtest` to validate against historical data
-5. **Evolve**: Run `npm run evolve` to generate improved parameter sets
+5. **Evolve**: Run `npm run evolve` to generate improved parameter sets (uses LLM if `VENICE_API_KEY` set)
 6. **Deploy**: Export the best config and use it with your trading agent
 
 ## Example Strategy Configurations

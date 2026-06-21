@@ -40,34 +40,6 @@ function mulberry32(a) {
   };
 }
 
-function generateMutations(params) {
-  const mutations = [];
-  const baseTs = Date.now() % 100000;
-  const directions = [
-    { label: 'conservative', dir: -1, amp: 0.8 },
-    { label: 'aggressive', dir: 1, amp: 0.9 },
-    { label: 'mixed', dir: -1, amp: 0.5 },
-  ];
-  for (let i = 0; i < 3; i++) {
-    const rd = mulberry32(baseTs + i * 31337 + (params.rsiOversoldThreshold || 30) * 7);
-    rd(); rd(); rd();
-    const d = directions[i];
-    const amp = d.amp * (0.7 + rd() * 0.3);
-    const mutated = {
-      rsiOversoldThreshold: Math.max(15, Math.min(45, params.rsiOversoldThreshold + Math.round(d.dir * amp * 6))),
-      rsiOverboughtThreshold: Math.max(55, Math.min(85, params.rsiOverboughtThreshold + Math.round(d.dir * amp * 6))),
-      confidenceThreshold: Math.max(0.4, Math.min(0.8, Math.round((params.confidenceThreshold + d.dir * amp * 0.06) * 100) / 100)),
-      kellyFraction: Math.max(0.1, Math.min(0.5, Math.round((params.kellyFraction + d.dir * amp * 0.06) * 100) / 100)),
-      volDampeningFloor: Math.max(0.1, Math.min(0.5, Math.round((params.volDampeningFloor - d.dir * amp * 0.04) * 100) / 100)),
-      maxLeverage: Math.max(1, Math.min(5, params.maxLeverage)),
-      stopLossPct: Math.max(2, Math.min(15, params.stopLossPct + Math.round(d.dir * amp * 2.5))),
-      takeProfitPct: Math.max(2, Math.min(15, params.takeProfitPct + Math.round(d.dir * amp * 2.5))),
-    };
-    mutations.push({ params: mutated, label: `mutation_${d.label}_${i + 1}` });
-  }
-  return mutations;
-}
-
 function runBacktestWithParams(params) {
   return runBacktest({
     periods: 360,
@@ -94,6 +66,99 @@ function scoreMutation(result) {
   return Math.max(0, sharpeScore + returnScore + winRateScore + tradeScore - ddPenalty);
 }
 
+function generateRandomMutations(params) {
+  const mutations = [];
+  const baseTs = Date.now() % 100000;
+  const strategies = [
+    { label: 'conservative', dir: -1, amp: 0.8 },
+    { label: 'aggressive', dir: 1, amp: 0.9 },
+    { label: 'balanced', dir: 1, amp: 0.4 },
+  ];
+
+  for (let i = 0; i < 3; i++) {
+    const rd = mulberry32(baseTs + i * 31337 + (params.rsiOversoldThreshold || 30) * 7);
+    rd(); rd(); rd();
+    const d = strategies[i];
+    const amp = d.amp * (0.7 + rd() * 0.3);
+    const mutated = {
+      rsiOversoldThreshold: Math.max(15, Math.min(45, params.rsiOversoldThreshold + Math.round(d.dir * amp * 6))),
+      rsiOverboughtThreshold: Math.max(55, Math.min(85, params.rsiOverboughtThreshold + Math.round(d.dir * amp * 6))),
+      confidenceThreshold: Math.max(0.4, Math.min(0.8, Math.round((params.confidenceThreshold + d.dir * amp * 0.06) * 100) / 100)),
+      kellyFraction: Math.max(0.1, Math.min(0.5, Math.round((params.kellyFraction + d.dir * amp * 0.06) * 100) / 100)),
+      volDampeningFloor: Math.max(0.1, Math.min(0.5, Math.round((params.volDampeningFloor - d.dir * amp * 0.04) * 100) / 100)),
+      maxLeverage: Math.max(1, Math.min(5, params.maxLeverage)),
+      stopLossPct: Math.max(2, Math.min(15, params.stopLossPct + Math.round(d.dir * amp * 2.5))),
+      takeProfitPct: Math.max(2, Math.min(15, params.takeProfitPct + Math.round(d.dir * amp * 2.5))),
+    };
+    mutations.push({ params: mutated, label: `mutation_${d.label}` });
+  }
+  return mutations;
+}
+
+async function generateLLMMutations(params) {
+  const veniceKey = process.env.VENICE_API_KEY;
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+  const mutations = [];
+
+  const prompts = [
+    { label: 'llm_conservative', goal: 'reduce max drawdown while keeping Sharpe > 1.0' },
+    { label: 'llm_aggressive', goal: 'increase win rate and total return' },
+    { label: 'llm_balanced', goal: 'improve risk-adjusted returns (lower drawdown, higher Sharpe)' },
+  ];
+
+  for (const p of prompts) {
+    const prompt = `You are a strategy optimizer. Given these current parameters, suggest a mutation to ${p.goal}.
+Current: RSI oversold=${params.rsiOversoldThreshold}, overbought=${params.rsiOverboughtThreshold}, conf threshold=${params.confidenceThreshold}, kelly fraction=${params.kellyFraction}, vol floor=${params.volDampeningFloor}, max lev=${params.maxLeverage}, stop=${params.stopLossPct}%, take=${params.takeProfitPct}%
+
+Return ONLY a JSON object with these exact keys (numeric values only):
+{
+  "rsiOversoldThreshold": 15-45,
+  "rsiOverboughtThreshold": 55-85,
+  "confidenceThreshold": 0.4-0.8,
+  "kellyFraction": 0.1-0.5,
+  "volDampeningFloor": 0.1-0.5,
+  "maxLeverage": 1-5,
+  "stopLossPct": 2-15,
+  "takeProfitPct": 2-15
+}`;
+
+    let result = null;
+    try {
+      if (veniceKey) {
+        const { default: axios } = await import('axios');
+        const { data } = await axios.post(
+          'https://api.venice.ai/api/v1/chat/completions',
+          { model: 'llama-3.3-70b', messages: [{ role: 'user', content: prompt }], temperature: 0.8 },
+          { headers: { 'Authorization': `Bearer ${veniceKey}`, 'Content-Type': 'application/json' }, timeout: 15000 }
+        );
+        const text = data.choices[0].message.content;
+        const jm = text.match(/\{[\s\S]*\}/);
+        if (jm) result = JSON.parse(jm[0]);
+      }
+      if (!result && anthropicKey) {
+        const { default: axios } = await import('axios');
+        const { data } = await axios.post(
+          'https://api.anthropic.com/v1/messages',
+          { model: 'claude-sonnet-4-20250514', max_tokens: 500, messages: [{ role: 'user', content: prompt }] },
+          { headers: { 'x-api-key': anthropicKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' }, timeout: 15000 }
+        );
+        const text = data.content[0].text;
+        const jm = text.match(/\{[\s\S]*\}/);
+        if (jm) result = JSON.parse(jm[0]);
+      }
+    } catch {}
+
+    if (result) {
+      const cleaned = {};
+      for (const key of Object.keys(params)) {
+        cleaned[key] = result[key] !== undefined ? result[key] : params[key];
+      }
+      mutations.push({ params: cleaned, label: p.label });
+    }
+  }
+  return mutations;
+}
+
 export async function evolve() {
   console.log('═══════════════════════════════════════════');
   console.log('  Renaissance — Strategy Evolution Engine');
@@ -102,13 +167,23 @@ export async function evolve() {
   const baseline = loadBaseline();
   console.log('Current params:', JSON.stringify(baseline, null, 2), '\n');
 
-  console.log('Running baseline backtest (seed=42)...');
+  console.log('Running baseline backtest...');
   const baselineResult = runBacktestWithParams(baseline);
   const baselineScore = scoreMutation(baselineResult);
   console.log(`Baseline: Sharpe=${baselineResult.results.sharpeRatio}, Return=${baselineResult.results.totalReturn}%, DD=${baselineResult.results.maxDrawdown}%, WR=${baselineResult.results.winRate}%, Trades=${baselineResult.results.totalTrades}, Score=${baselineScore.toFixed(1)}\n`);
 
-  const mutations = generateMutations(baseline);
-  console.log(`Testing ${mutations.length} mutations (deterministic data)...\n`);
+  const hasLLM = !!(process.env.VENICE_API_KEY || process.env.ANTHROPIC_API_KEY);
+  const mutations = hasLLM ? await generateLLMMutations(baseline) : generateRandomMutations(baseline);
+
+  if (hasLLM) {
+    console.log(`Using LLM (${
+      process.env.VENICE_API_KEY ? 'Venice AI' : 'Anthropic'
+    }) for mutation generation...\n`);
+  } else {
+    console.log('No LLM API key set — using random mutations.\n');
+  }
+
+  console.log(`Testing ${mutations.length} mutations...\n`);
 
   let bestResult = { result: baselineResult, score: baselineScore, label: 'baseline', params: baseline };
   const results = [{ label: 'baseline', result: baselineResult, score: baselineScore, params: baseline }];
@@ -128,24 +203,20 @@ export async function evolve() {
   if (bestResult.label !== 'baseline') {
     console.log(`✅ PROMOTED: ${bestResult.label}`);
     console.log(`   Params:`, JSON.stringify(bestResult.params, null, 2));
-    console.log(`   Sharpe: ${baselineResult.results.sharpeRatio} → ${bestResult.result.results.sharpeRatio}`);
-    console.log(`   Return: ${baselineResult.results.totalReturn}% → ${bestResult.result.results.totalReturn}%`);
-    console.log(`   DD: ${baselineResult.results.maxDrawdown}% → ${bestResult.result.results.maxDrawdown}%`);
     console.log(`   Score: ${baselineScore.toFixed(1)} → ${bestResult.score.toFixed(1)}`);
   } else {
     console.log('➖ No improvement found. Keeping baseline.');
   }
 
   const genNum = (() => {
-    try {
-      const e = JSON.parse(readFileSync(EVOLUTION_LOG, 'utf-8'));
-      return (e.generation || 0) + 1;
-    } catch { return 1; }
+    try { const e = JSON.parse(readFileSync(EVOLUTION_LOG, 'utf-8')); return (e.generation || 0) + 1; }
+    catch { return 1; }
   })();
 
   const logEntry = {
     generation: genNum,
     timestamp: new Date().toISOString(),
+    source: hasLLM ? 'llm' : 'random',
     baseline: { params: baseline, results: baselineResult.results, score: baselineScore },
     mutations: results.filter(r => r.label !== 'baseline').map(r => ({
       label: r.label, params: r.params, results: r.result.results, score: r.score,
@@ -162,7 +233,7 @@ export async function evolve() {
   existingLog.entries.push(logEntry);
   existingLog.generation = genNum;
   writeFileSync(EVOLUTION_LOG, JSON.stringify(existingLog, null, 2));
-  console.log(`\n  Logged to data/evolution_log.json (gen ${genNum})`);
+  console.log(`\n  Logged to data/evolution_log.json (gen ${genNum}, source: ${hasLLM ? 'LLM' : 'random'})`);
   console.log('═══════════════════════════════════════════\n');
 
   return bestResult;

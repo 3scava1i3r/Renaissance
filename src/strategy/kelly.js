@@ -3,36 +3,30 @@ export function calculate(decision, portfolioUsd, volatility) {
     return { sizeUsd: 0, sizePct: 0, leverage: 0 };
   }
 
-  const DEFAULT_WIN_RATE = 0.55;
-  const DEFAULT_AVG_WIN = 0.12;
-  const DEFAULT_AVG_LOSS = 0.05;
-
-  // Full Kelly
-  const winRate = decision.winRate || DEFAULT_WIN_RATE;
-  const avgWin = decision.avgWin || DEFAULT_AVG_WIN;
-  const avgLoss = decision.avgLoss || DEFAULT_AVG_LOSS;
+  const winRate = decision.winRate || 0.55;
+  const avgWin = decision.avgWin || 0.12;
+  const avgLoss = decision.avgLoss || 0.05;
   const oddsRatio = avgWin / avgLoss;
   const kellyRaw = (winRate * oddsRatio - (1 - winRate)) / oddsRatio;
 
-  // Quarter-Kelly
-  const quarterKelly = kellyRaw * 0.25;
+  const kellyFraction = decision.kellyFraction || 0.25;
+  const sizedKelly = kellyRaw * kellyFraction;
 
-  // Confidence scale: 0 at 65% confidence, 1 at 100%
   const conf = decision.confidence || 0.75;
   const confidenceMultiplier = Math.max(0, (conf - 0.65) / 0.35);
 
-  // Volatility dampening
-  const volFactor = Math.max(0.2, 1 - ((volatility || 20) * 0.5 / 10));
+  const volFactor = Math.max(decision.volDampeningFloor || 0.2, 1 - ((volatility || 20) * 0.5 / 10));
 
-  let sizePct = quarterKelly * confidenceMultiplier * volFactor * 100;
+  let sizePct = sizedKelly * confidenceMultiplier * volFactor * 100;
   sizePct = Math.max(2, Math.min(20, sizePct));
 
   const sizeUsd = portfolioUsd * (sizePct / 100);
+  const leverage = decision.leverage || 5;
 
   return {
     sizeUsd: Math.round(sizeUsd * 100) / 100,
     sizePct: Math.round(sizePct * 100) / 100,
     kellyRaw: Math.round(kellyRaw * 1000) / 1000,
-    leverage: 5,
+    leverage,
   };
 }

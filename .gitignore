@@ -1,9 +1,7 @@
 node_modules/
 .env
-data/positions.json
-data/trade_journal.jsonl
-data/cycle_summary.md
-data/pnl_state.json
+data/
+.DS_Store
 .agent-identity
 .vscode/
 plan.md
