@@ -1,0 +1,11 @@
+{
+  "name": "Renaissance — Strategy Evolution Engine",
+  "github_url": "https://github.com/3scava1i3r/Renaissance",
+  "category": [
+    "trading",
+    "llm",
+    "backtesting",
+    "evolution"
+  ],
+  "description": "An LLM-driven evolutionary strategy engine for crypto perpetual futures. Uses EMA crossover, RSI, funding rates, and Fear & Greed with Half-Kelly position sizing. Backtested +444% on real Binance data across BTC/ETH/BNB."
+}

@@ -1,5 +1,5 @@
 export function evaluate(cmcData, strategy) {
-  const { prices, fundingRates } = cmcData;
+  const { prices, fundingRates, fearGreed } = cmcData;
 
   if (!prices || prices.length < 2) {
     return { direction: null, confidence: 0, reason: 'Insufficient data' };
@@ -46,6 +46,14 @@ export function evaluate(cmcData, strategy) {
     if (override) {
       direction = override.direction;
       confidence = override.confidence;
+    }
+  }
+
+  if (direction && fearGreed && typeof fearGreed.value === 'number') {
+    if (fearGreed.value < 25 && direction === 'LONG') {
+      confidence = Math.min(0.95, confidence + 0.1);
+    } else if (fearGreed.value > 75 && direction === 'SHORT') {
+      confidence = Math.min(0.95, confidence + 0.1);
     }
   }
 

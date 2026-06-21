@@ -24,7 +24,7 @@ CMC Data
    │
    ├─→ Layer 1: Quant Scoring (trend + momentum + volume + relative strength)
    │       ↓
-   ├─→ Layer 2: Technical Entry/Exit (simulated EMA crossover + RSI + funding rate)
+    ├─→ Layer 2: Technical Entry/Exit (simulated EMA crossover + RSI + funding rate + Fear & Greed)
    │       ↓
    └─→ Layer 3: Position Sizing (Half-Kelly with volatility dampening)
            ↓
@@ -61,7 +61,13 @@ Simulates EMA20/50 crossover using 1h and 24h changes, derives RSI from 24h chan
 - Current price < EMA20
 - RSI(14) > 30 (not oversold)
 
-Confidence is set at 0.65–0.75 based on proximity to overbought/oversold thresholds.
+**Confidence modifier (Fear & Greed):**
+- Fear & Greed < 25 (extreme fear) → LONG confidence +0.10 (contrarian buy)
+- Fear & Greed > 75 (extreme greed) → SHORT confidence +0.10 (contrarian sell)
+- Otherwise → no modifier, existing RSI/funding logic applies
+- Falls back gracefully if API is unavailable (null = skip modifier)
+
+Confidence is set at 0.65–0.75 based on proximity to overbought/oversold thresholds, then modified by Fear & Greed.
 
 **Exit conditions (any triggers exit):**
 - RSI crosses above 70 (long exit) or below 30 (short exit)
