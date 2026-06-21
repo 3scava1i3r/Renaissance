@@ -10,7 +10,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const DEFAULT_CONFIG = {
   initialCapital: 1000,
-  intervalHours: 4,
+  intervalHours: 8,
   periods: 540,
   txnCost: 0.50,
   gasCost: 0.01,
@@ -19,7 +19,7 @@ const DEFAULT_CONFIG = {
 };
 
 function mulberry32(a) {
-  return function() {
+  return function () {
     let t = a += 0x6D2B79F5;
     t = Math.imul(t ^ t >>> 15, t | 1);
     t ^= t + Math.imul(t ^ t >>> 7, t | 61);
@@ -67,31 +67,37 @@ function generateMarketData(periods, seed) {
   return data;
 }
 
-function loadMarketData(config) {
+function loadMarketData(config, verbose) {
   if (config.dataSource === 'synthetic') {
+    if (verbose) console.log('  [Backtest] Skipping cache (dataSource=synthetic)');
     return null;
   }
 
-  const saved = loadSavedData();
+  if (verbose) console.log('  [Backtest] Checking for cached market data...');
+  const saved = loadSavedData(verbose);
   if (saved && saved.length > 0) {
     const sliced = saved.slice(0, config.periods);
-    console.log(`[Backtest] Using saved market data — ${sliced.length} slices from Binance/CoinGecko\n`);
+    if (verbose) console.log(`  [Backtest] ✓ Loaded ${sliced.length} slices from cached market-data/\n`);
     return sliced;
   }
 
   const dataPath = resolve(__dirname, '../data/market_data.json');
+  if (verbose) console.log(`  [Backtest] Checking ${dataPath}...`);
   if (existsSync(dataPath)) {
     try {
       const raw = JSON.parse(readFileSync(dataPath, 'utf-8'));
       const d = raw.data || raw;
       if (Array.isArray(d) && d.length > 0) {
         const sliced = d.slice(0, config.periods);
-        console.log(`[Backtest] Using saved market data — ${sliced.length} slices\n`);
+        if (verbose) console.log(`  [Backtest] ✓ Loaded ${sliced.length} slices\n`);
         return sliced;
       }
-    } catch {}
+    } catch {
+      if (verbose) console.log('  [Backtest] ✗ Parse failed');
+    }
   }
 
+  if (verbose) console.log('  [Backtest] ✗ No cached data, generating synthetic...\n');
   return null;
 }
 
@@ -120,12 +126,32 @@ export function runBacktest(options = {}) {
   const config = { ...DEFAULT_CONFIG, ...options };
   const evoParams = options.evoParams || {};
 
+  if (!options.quiet) {
+    console.log('');
+    console.log('══════════════════════════════════════════════════════');
+    console.log('  Renaissance Strategy Engine — Running Backtest');
+    console.log('══════════════════════════════════════════════════════');
+    console.log(`  Periods:       ${config.periods}`);
+    console.log(`  Interval:      ${config.intervalHours}h`);
+    console.log(`  Initial Cap:   $${config.initialCapital}`);
+    console.log(`  Seed:          ${config.seed}`);
+    console.log(`  Stop Loss:     ${evoParams.stopLossPct || 5}%`);
+    console.log(`  Take Profit:   ${evoParams.takeProfitPct || 5}%`);
+    console.log(`  Leverage:      ${Math.min(evoParams.maxLeverage || 5, 5)}x`);
+    console.log(`  Kelly Frac:    ${evoParams.kellyFraction || 0.25}`);
+    console.log(`  RSI OB/OS:     ${evoParams.rsiOverboughtThreshold || 70} / ${evoParams.rsiOversoldThreshold || 30}`);
+    console.log(`  Max Drawdown:  ${evoParams.maxDrawdown || 30}% halt`);
+    console.log('──────────────────────────────────────────────────────\n');
+  }
+
   let marketData = options.marketData;
   if (!marketData) {
-    marketData = loadMarketData(config);
+    marketData = loadMarketData(config, !options.quiet);
   }
   if (!marketData) {
+    console.log('  [Backtest] Generating synthetic price series in memory (no API calls needed)...');
     marketData = generateMarketData(config.periods, config.seed);
+    console.log(`  [Backtest] ✓ Generated ${marketData.length} synthetic bars\n`);
   }
 
   const stopLossPct = (evoParams.stopLossPct || 5) / 100;
@@ -146,10 +172,21 @@ export function runBacktest(options = {}) {
   let lastTradeDay = -1;
   let drawdownHalted = false;
 
+  const logInterval = Math.max(1, Math.floor(marketData.length / 20));
+  const startTime = Date.now();
+
   for (let i = 0; i < marketData.length; i++) {
     const slice = marketData[i];
     const currentDay = Math.floor(i / (24 / config.intervalHours));
     if (currentDay !== lastTradeDay) { tradesToday = 0; lastTradeDay = currentDay; }
+
+    if (!options.quiet && i > 0 && i % logInterval === 0) {
+      const pct = (i / marketData.length * 100).toFixed(0);
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+      const eq = equity[equity.length - 1] || portfolio;
+      const chg = ((eq - config.initialCapital) / config.initialCapital * 100).toFixed(2);
+      console.log(`  [${pct}%] period ${i}/${marketData.length}  equity=$${eq.toFixed(2)}  return=${chg}%  trades=${trades.length}  pos=${position ? position.symbol + ' ' + position.direction : 'none'}  (${elapsed}s)`);
+    }
 
     const cmcData = {
       prices: slice.prices,
@@ -183,6 +220,7 @@ export function runBacktest(options = {}) {
         const pnl = (p - position.entryPrice) / position.entryPrice * position.leverage * position.sizeUsd - config.txnCost - config.gasCost;
         portfolio += position.sizeUsd + pnl;
         trades.push({ ...position, exitPrice: p, pnl, exitReason: 'DRAWDOWN_HALT' });
+        if (!options.quiet) console.log(`  ╔══ CLOSE #${trades.length} ═══════════════════════════════╗\n  ║ ${position.symbol} ${position.direction}  entry=$${position.entryPrice}  exit=$${p.toFixed(2)}  pnl=$${pnl.toFixed(2)}  REASON=DRAWDOWN_HALT\n  ╚══════════════════════════════════════════╝`);
         position = null;
       }
       equity.push(portfolio);
@@ -206,6 +244,7 @@ export function runBacktest(options = {}) {
       const pnl = (ep - position.entryPrice) / position.entryPrice * position.leverage * position.sizeUsd - config.txnCost - config.gasCost;
       portfolio += position.sizeUsd + pnl;
       trades.push({ ...position, exitPrice: ep, pnl, exitReason });
+      if (!options.quiet) console.log(`  ╔══ CLOSE #${trades.length} ═══════════════════════════════╗\n  ║ ${position.symbol} ${position.direction}  entry=$${position.entryPrice}  exit=$${ep.toFixed(2)}  pnl=$${pnl.toFixed(2)}  REASON=${exitReason}\n  ╚══════════════════════════════════════════╝`);
       position = null;
     }
 
@@ -233,6 +272,10 @@ export function runBacktest(options = {}) {
           confidence: signal.confidence,
         };
         tradesToday++;
+        if (!options.quiet) {
+          const sig = signal.reason || '';
+          console.log(`  ╔══ OPEN #${trades.length + 1} ═══════════════════════════════╗\n  ║ ${position.symbol} ${position.direction}  entry=$${price}  size=$${sizeUsd.toFixed(2)}  lev=${maxLev}x  conf=${signal.confidence}\n  ║ ${sig}\n  ╚══════════════════════════════════════════╝`);
+        }
       }
     }
 
@@ -248,6 +291,23 @@ export function runBacktest(options = {}) {
   const maxDd = computeMaxDrawdown(equity) * 100;
   const winningTrades = trades.filter(t => t.pnl > 0).length;
   const totalTrades = trades.length;
+  const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+
+  if (!options.quiet) {
+    console.log('');
+    console.log('══════════════════════════════════════════════════════');
+    console.log('  Backtest Complete');
+    console.log('══════════════════════════════════════════════════════');
+    console.log(`  Periods:       ${marketData.length} bars @ ${config.intervalHours}h`);
+    console.log(`  Duration:      ${elapsed}s`);
+    console.log(`  Initial Cap:   $${config.initialCapital}`);
+    console.log(`  Final Equity:  $${finalEquity.toFixed(2)}`);
+    console.log(`  Total Return:  ${totalReturn >= 0 ? '+' : ''}${totalReturn.toFixed(2)}%`);
+    console.log(`  Sharpe Ratio:  ${sharpe.toFixed(2)}`);
+    console.log(`  Max Drawdown:  ${(maxDd).toFixed(2)}%`);
+    console.log(`  Win Rate:      ${totalTrades > 0 ? (winningTrades / totalTrades * 100).toFixed(1) : 0}% (${winningTrades}W / ${totalTrades - winningTrades}L)`);
+    console.log('──────────────────────────────────────────────────────\n');
+  }
 
   return {
     config: {
@@ -288,7 +348,7 @@ if (process.argv[1] && (process.argv[1].endsWith('backtest.js') || process.argv[
       for (let i = entries.length - 1; i >= 0; i--) {
         if (entries[i].promotedParams) { evoParams = entries[i].promotedParams; break; }
       }
-    } catch {}
+    } catch { }
   }
 
   const result = runBacktest({
