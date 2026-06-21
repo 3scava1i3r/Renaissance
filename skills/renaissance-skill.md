@@ -247,3 +247,19 @@ Run `npm run backtest` to reproduce. Based on 540 four-hour periods (~90 days) w
 | `scripts/backtest.js` | Backtesting harness |
 | `scripts/evolve.js` | LLM-driven strategy evolution |
 | `skills/renaissance-skill.md` | This document — the Skill spec |
+| `prizes/agent-hub/mcp.json` | CMC MCP server config |
+| `prizes/agent-hub/cmc-cli-demo.sh` | CMC CLI integration demo |
+| `prizes/agent-hub/SKILL.md` | Agent Hub multi-access integration skill |
+
+## CMC Agent Hub Integration
+
+Renaissance connects to CoinMarketCap through **four Agent Hub access paths**, demonstrating full platform coverage:
+
+| Access Path | Implementation | Setup |
+|-------------|---------------|-------|
+| **Pre-built Skill** | `skills/renaissance-skill.md` | Copy to agent's skills directory |
+| **MCP (Model Context Protocol)** | `prizes/agent-hub/mcp.json` | Add to MCP client config |
+| **CMC CLI** | `prizes/agent-hub/cmc-cli-demo.sh` | `brew install cmc` then `bash` the script |
+| **REST API** | `src/data/cmc.js` | Requires `CMC_API_KEY` in `.env` |
+
+See `prizes/agent-hub/` for setup instructions, MCP configuration, and the CLI demo script.
