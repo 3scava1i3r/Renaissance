@@ -1,216 +1,81 @@
-# Renaissance
+# Renaissance: Self-Evolving Multi-Factor Strategy Skill
 
-Autonomous AI trading agent for BNB Chain — natural-language strategy in, on-chain execution out.
+**Track:** BNB Hack: AI Trading Agent Edition — **Track 2: Strategy Skills** ($6,000 prize pool)
 
-**Track:** BNB Hack: AI Trading Agent Edition — Track 1: Autonomous Trading Agents ($24,000 prize pool)
-
-## Architecture
-
-```
-User NL Strategy  ("long ETH when funding negative, 5x, $200 max")
-       │
-       ▼
-┌──────────────────────┐
-│  strategy/compiler.js │  ← LLM compiles NL into JSON config
-└──────────┬───────────┘
-           │
-           ▼
-┌──────────────────────┐
-│   30-min Heartbeat   │
-│     (loop.js)        │
-└──────────┬───────────┘
-           │
-┌──────────▼───────────┐
-│  CMC Agent Hub       │  ← prices, funding rates, Fear & Greed
-└──────────┬───────────┘
-           │
-┌──────────▼───────────┐
-│  Multi-Layer AI      │
-│                      │
-│  Layer 1: quant_score│  ← trend, momentum, volume scoring
-│  Layer 2: perps_     │  ← EMA20/50, RSI(14), funding rate
-│           strategy   │
-│  Layer 3: Venice AI  │  ← private TEE final decision
-│  Layer 4: kelly      │  ← Quarter-Kelly + vol dampening
-└──────────┬───────────┘
-           │
-┌──────────▼───────────┐
-│  Safety Gate (CHECK) │
-│                      │
-│  ✓ rug_check (8 checks)     │
-│  ✓ 30% max drawdown         │
-│  ✓ Min 1 trade/day          │
-│  ✓ Simulated txn costs      │
-│  ✓ ATR trailing stops       │
-│  ✓ Eligible token allowlist │
-└──────────┬───────────┘
-           │
-┌──────────▼───────────┐
-│  TWAK + PancakeSwap  │
-│                      │
-│  Self-custody signing│
-│  BSC perps execution │
-│  x402 pay-per-call   │
-└──────────┬───────────┘
-           │
-┌──────────▼───────────┐
-│  Monitoring          │
-│                      │
-│  Trade journal       │
-│  PnL + drawdown      │
-│  Telegram alerts     │
-│  Dashboard (Express) │
-└──────────────────────┘
-```
+A quantitative trading strategy skill for the CoinMarketCap AI Agent Hub. Combines multi-factor token scoring, technical regime detection, funding rate analysis, and LLM-driven self-evolution via backtesting.
 
 ## Quick Start
 
-### Prerequisites
-
 ```bash
-# Install TWAK (Trust Wallet Agent Kit)
-curl -fsSL https://agent-kit.trustwallet.com/install.sh | bash
-
-# Clone
 git clone https://github.com/3scava1i3r/Renaissance
 cd Renaissance
 npm install
 ```
 
-### Configure
+### Run Backtest
 
 ```bash
-cp .env.example .env
+npm run backtest
 ```
 
-Fill in your `.env`:
+Outputs Sharpe ratio, max drawdown, win rate, total return, and full trade log.
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `PRIVATE_KEY` | Yes | Agent wallet private key |
-| `AGENT_WALLET` | Yes | Agent wallet address |
-| `BSC_RPC` | Yes | BSC RPC endpoint |
-| `CMC_API_KEY` | Yes | CoinMarketCap Pro API key |
-| `TWAK_ACCESS_ID` | Yes | Trust Wallet API access ID |
-| `TWAK_HMAC_SECRET` | Yes | Trust Wallet API HMAC secret |
-| `VENICE_API_KEY` | No | Venice AI private reasoning |
-| `ANTHROPIC_API_KEY` | No | Fallback LLM for screening |
-| `TELEGRAM_BOT_TOKEN` | No | Telegram alert bot token |
-| `TELEGRAM_CHAT_ID` | No | Telegram alert chat ID |
-| `STRATEGY_NL` | No | Natural-language strategy (see below) |
-
-### Competition Registration (One-Time)
+### Evolve Strategy
 
 ```bash
-# Automatically deploys vault + registers on competition contract
-node scripts/compete-register.js
+# Optional: set LLM API key for AI-powered mutation
+export ANTHROPIC_API_KEY=sk-...
 
-# Or if TWAK is not installed, direct contract call:
-node scripts/compete-register.js --direct
+npm run evolve
 ```
 
-This registers your agent on the competition contract `0x212c61b9b72c95d95bf29cf032f5e5635629aed5` (BSC mainnet).
+Mutates strategy parameters, backtests each mutation, and promotes the best performer. Results logged to `data/evolution_log.json`.
 
-### Run
+## Strategy Architecture
 
-```bash
-# Test first
-npm test
-npm run dry
-
-# Start live agent
-npm start
+```
+CMC Data (prices, funding, fear & greed)
+   │
+   ├─→ Layer 1: Quant Scoring (trend + momentum + volume + relative strength)
+   │       ↓
+   ├─→ Layer 2: Technical Entry/Exit (EMA crossover + RSI + funding rate)
+   │       ↓
+   └─→ Layer 3: Position Sizing (Half-Kelly + volatility dampening)
+           ↓
+      Decision: BUY / SELL / HOLD
 ```
 
-### View Dashboard
-
-Open http://localhost:3000 to see:
-- Portfolio value, PnL, drawdown %
-- Trade history
-- Configuration overview
-- Agent status
-
-## Natural Language Strategy
-
-Set `STRATEGY_NL` in your `.env` to define your strategy in plain English:
-
-```env
-STRATEGY_NL="long ETH perps when funding negative and RSI < 30, 5x leverage, max 30% drawdown, $200 per trade"
-```
-
-The compiler (`src/strategy/compiler.js`) parses this into structured JSON the agent follows.
-
-Example strategies:
-- `"long ETH when funding negative and RSI < 30, 5x, max $200"`
-- `"short BTC when RSI > 70, 3x leverage, 20% drawdown limit"`
-- `"long BNB when volume spikes >2x average, 3x, $150 per trade"`
-
-## Competition Rules Compliance
-
-| Rule | Implementation |
-|------|---------------|
-| 30% max drawdown | `src/safety/drawdown.js` — hard halt at configurable threshold |
-| Min 1 trade/day | `src/safety/drawdown.js` — enforced via journal trade count |
-| Simulated txn costs | `src/monitoring/pnl.js` — $0.50/trade + $0.01 gas |
-| On-chain registration | `scripts/compete-register.js` — competition contract on BSC |
-| 149 eligible tokens | `src/data/tokens.js` — allowlist checked at strategy and execution |
-| Self-custody | TWAK unlock-once, keys never leave user |
-| Autonomous execution | 30-min heartbeat, no human in loop |
-| Demo-ready | Express dashboard at port 3000 + Telegram alerts |
+See `skills/renaissance-skill.md` for the full strategy spec.
 
 ## Sponsor Stack
 
 | Sponsor | Component | Usage |
 |---------|-----------|-------|
-| **CoinMarketCap** | Agent Hub | Prices, funding rates, Fear & Greed, trending tokens |
-| **Trust Wallet** | Agent Kit (TWAK) | Self-custody signing, swap execution, competition registration, x402 |
-| **BNB Chain** | BSC + BNB AI Agent SDK | ERC-8004 identity registration, on-chain execution |
+| **CoinMarketCap** | Agent Hub | Prices, funding rates, fear & greed, trending tokens |
+| **BNB Chain** | BSC | Eligible token universe (149 BEP-20 tokens) |
 
 ## File Structure
 
 ```
 src/
-├── index.js              # Entry point — starts dashboard + loop
-├── config.js             # Environment config + rules
-├── loop.js               # 30-min heartbeat cycle
-├── data/
-│   ├── cmc.js            # CMC Agent Hub integration
-│   ├── bsc.js            # BSC on-chain data
-│   └── tokens.js         # 149 eligible BEP-20 token allowlist
 ├── strategy/
-│   ├── compiler.js       # NL → JSON strategy compiler
-│   ├── quant_score.js    # Token scoring engine
-│   ├── perps_strategy.js # EMA/RSI/funding rate strategy
-│   └── kelly.js          # Quarter-Kelly position sizing
-├── safety/
-│   ├── rug_check.js      # 8-check token safety
-│   ├── drawdown.js       # 30% max drawdown enforcement
-│   └── stops.js          # ATR trailing stops
-├── execution/
-│   ├── twak.js           # TWAK CLI wrapper
-│   └── perps.js          # PancakeSwap perps execution
-├── ai/
-│   ├── screener.js       # LLM pre-filter
-│   └── decision.js       # Multi-layer AI decision
-└── monitoring/
-    ├── journal.js        # Trade journal
-    ├── pnl.js            # PnL + drawdown tracking
-    ├── telegram.js       # Telegram alerts
-    └── dashboard.js      # Express status page
+│   ├── quant_score.js     # Token scoring engine
+│   ├── perps_strategy.js  # EMA/RSI/funding rate strategy
+│   └── kelly.js           # Half-Kelly position sizing
+├── data/
+│   └── cmc.js             # CMC Agent Hub integration
+scripts/
+├── backtest.js            # Backtesting harness
+└── evolve.js              # LLM-driven strategy evolution
+skills/
+└── renaissance-skill.md   # Strategy Skill spec (submission artifact)
+test/
+├── strategy.test.js
+└── safety.test.js
 ```
 
-## Demo Instructions
+## Submission
 
-1. Start the agent: `npm start`
-2. Open dashboard: http://localhost:3000
-3. Wait for a cycle to complete (30 min or run `npm run dry`)
-4. Record 2-min video showing:
-   - Terminal with agent running
-   - Dashboard with portfolio stats
-   - Trade journal entries
-5. Submit on DoraHacks with GitHub repo + demo video link
+Submit `skills/renaissance-skill.md` plus your GitHub repo on DoraHacks. Include backtest results showing Sharpe ratio, max drawdown, win rate, and total return.
 
-## Deadline
-
-**June 21, 2026 17:30 UTC** — submissions close
-Trading window: June 22–28, 2026
+**Deadline:** June 21, 2026 17:30 UTC

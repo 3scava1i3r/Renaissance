@@ -2,12 +2,11 @@
   "name": "renaissance",
   "version": "1.0.0",
   "type": "module",
-  "description": "Autonomous AI trading agent for BNB Chain — natural-language strategy in, on-chain execution out",
+  "description": "Self-Evolving Multi-Factor Strategy Skill for CoinMarketCap AI Agent Hub — BNB Hack Track 2",
   "scripts": {
-    "start": "node src/index.js",
-    "test": "node --test test/*.test.js",
-    "dry": "node scripts/test-cycle.js",
-    "register": "node scripts/compete-register.js"
+    "backtest": "node scripts/backtest.js",
+    "evolve": "node scripts/evolve.js",
+    "test": "node --test test/*.test.js"
   },
   "dependencies": {
     "dotenv": "^16.0.0",
